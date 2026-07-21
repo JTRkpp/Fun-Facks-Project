@@ -113,7 +113,7 @@
             placedChain: [],      
             placementQueue: [],   
             currentPlacerId: "",
-            currentRevealIndex: 0,
+            revealCount: 1,
             earnedScore: 0
         };
 
@@ -344,7 +344,9 @@
 
         function processNextPlacer() {
             if (gameData.placementQueue.length === 0) {
-                startRevealSequenceHost();
+                // วางครบแล้ว ให้ Host แสดงปุ่มกดเริ่มเฉลย และบอกลูกค้า
+                broadcast({ type: 'WAITING_FOR_REVEAL', placedChain: gameData.placedChain });
+                renderReadyToRevealScreen();
                 return;
             }
             const currentPlacer = gameData.placementQueue[0];
@@ -437,45 +439,97 @@
             }
         }
 
-        // ==================== REVEAL PHASE (BOTTOM TO TOP) ====================
-        function startRevealSequenceHost() {
-            let correctCount = 0;
-            for (let i = 0; i < gameData.placedChain.length; i++) {
-                if (i === 0) {
-                    correctCount++;
-                } else {
-                    if (gameData.placedChain[i].value >= gameData.placedChain[i-1].value) {
-                        correctCount++;
+        // หน้าจอรอ Host กดปุ่มเริ่มเฉลย
+        function renderReadyToRevealScreen() {
+            let html = `
+                <div class="animate-fade-in text-center">
+                    <div class="text-3xl mb-2">🎯</div>
+                    <h2 class="text-xl font-bold mb-2">วางการ์ดครบทุกตำแหน่งแล้ว!</h2>
+                    <p class="text-slate-400 text-sm mb-6">ทุกคนจัดเรียงการ์ดบนกระดานเรียบร้อย</p>
+            `;
+            if (isHost) {
+                html += `
+                    <button onclick="hostTriggerReveal()" class="w-full glow-btn text-white font-medium py-3.5 rounded-xl cursor-pointer">
+                        เริ่มเข้าสู่เฟสเฉลยคำตอบ 🔍
+                    </button>
+                `;
+            } else {
+                html += `
+                    <div class="p-4 rounded-xl bg-slate-800/80 border border-slate-700 text-indigo-300 text-sm">
+                        ⏳ รอหัวหน้าห้องกดเริ่มเปิดเผยคำตอบ...
+                    </div>
+                `;
+            }
+            html += `</div>`;
+            app.innerHTML = html;
+        }
+
+        function hostTriggerReveal() {
+            // คำนวณคะแนนตามกฎใหม่
+            let chain = gameData.placedChain;
+            let earned = 1;
+            if (chain.length > 1) {
+                for (let i = chain.length - 2; i >= 0; i--) {
+                    if (chain[i].value <= chain[i+1].value) {
+                        earned++;
+                    } else {
+                        break;
                     }
                 }
             }
-            gameData.earnedScore = (correctCount === gameData.placedChain.length) ? gameData.placedChain.length : Math.max(0, correctCount - 1);
-            gameData.currentRevealIndex = 0;
+            gameData.earnedScore = earned;
+            gameData.revealCount = 1;
 
-            broadcastAndRenderRevealStep();
+            broadcastAndRunRevealStep();
         }
 
-        function broadcastAndRenderRevealStep() {
+        function broadcastAndRunRevealStep() {
             broadcast({
-                type: 'REVEAL_STEP',
-                revealIndex: gameData.currentRevealIndex,
+                type: 'RUN_REVEAL_STEP',
+                revealCount: gameData.revealCount,
                 placedChain: gameData.placedChain,
                 earned: gameData.earnedScore,
                 totalStars: gameData.stars
             });
             renderRevealStepScreen();
+
+            if (isHost) {
+                if (gameData.revealCount < gameData.placedChain.length) {
+                    setTimeout(() => {
+                        gameData.revealCount++;
+                        broadcastAndRunRevealStep();
+                    }, 2500); // 2.5 วินาทีต่อตำแหน่ง
+                } else {
+                    setTimeout(() => {
+                        gameData.stars += gameData.earnedScore;
+                        broadcast({
+                            type: 'SHOW_FINAL_RESULT',
+                            placedChain: gameData.placedChain,
+                            earned: gameData.earnedScore,
+                            totalStars: gameData.stars,
+                            round: gameData.round
+                        });
+                        renderResultScreen(gameData.placedChain, gameData.earnedScore, gameData.stars);
+                    }, 2500);
+                }
+            }
         }
 
+        // เปิดเผยจากล่างขึ้นบน
         function renderRevealStepScreen() {
+            let chain = gameData.placedChain;
+            let count = gameData.revealCount;
+            let minRevealedIndex = chain.length - count;
+
             let html = `
                 <div class="animate-fade-in text-center">
-                    <h2 class="text-2xl font-bold mb-1">🔍 กำลังเปิดเผยคำตอบรอบที่ ${gameData.round}</h2>
-                    <p class="text-slate-400 text-sm mb-4">เปิดทีละใบจากล่างขึ้นบน...</p>
+                    <h2 class="text-2xl font-bold mb-1">🔍 กำลังเฉลยรอบที่ ${gameData.round}</h2>
+                    <p class="text-slate-400 text-sm mb-4">เปิดจากล่างขึ้นบนทีละตำแหน่ง...</p>
                     <div class="space-y-3 mb-6">
             `;
 
-            gameData.placedChain.forEach((item, idx) => {
-                let isRevealed = idx <= gameData.currentRevealIndex;
+            chain.forEach((item, idx) => {
+                let isRevealed = idx >= minRevealedIndex;
                 if (isRevealed) {
                     html += `
                         <div class="p-4 rounded-xl text-white font-bold flex justify-between items-center shadow-lg animate-fade-in border border-white/20" style="background-color: ${item.color} !important;">
@@ -495,27 +549,6 @@
 
             html += `</div></div>`;
             app.innerHTML = html;
-
-            if (isHost) {
-                if (gameData.currentRevealIndex < gameData.placedChain.length - 1) {
-                    setTimeout(() => {
-                        gameData.currentRevealIndex++;
-                        broadcastAndRenderRevealStep();
-                    }, 2000);
-                } else {
-                    setTimeout(() => {
-                        gameData.stars += gameData.earnedScore;
-                        broadcast({
-                            type: 'SHOW_FINAL_RESULT',
-                            placedChain: gameData.placedChain,
-                            earned: gameData.earnedScore,
-                            totalStars: gameData.stars,
-                            round: gameData.round
-                        });
-                        renderResultScreen(gameData.placedChain, gameData.earnedScore, gameData.stars);
-                    }, 2000);
-                }
-            }
         }
 
         function renderResultScreen(chain, earned, totalStars) {
@@ -589,7 +622,8 @@
             if (data.type === 'UPDATE_LOBBY') { gameData.players = data.players; updateLobbyUI(); }
             if (data.type === 'START_GAME') { gameData.round = data.round; renderQuestionScreen(myName, gameData.round); }
             if (data.type === 'UPDATE_PLACEMENT_TURN') { gameData.placedChain = data.placedChain; renderPlacementScreen(data.currentPlacer); }
-            if (data.type === 'REVEAL_STEP') { gameData.placedChain = data.placedChain; gameData.currentRevealIndex = data.revealIndex; renderRevealStepScreen(); }
+            if (data.type === 'WAITING_FOR_REVEAL') { gameData.placedChain = data.placedChain; renderReadyToRevealScreen(); }
+            if (data.type === 'RUN_REVEAL_STEP') { gameData.placedChain = data.placedChain; gameData.revealCount = data.revealCount; renderRevealStepScreen(); }
             if (data.type === 'SHOW_FINAL_RESULT') { renderResultScreen(data.placedChain, data.earned, data.totalStars); }
             if (data.type === 'GAME_OVER') { renderGameOverScreen(data.totalStars, data.playersCount); }
         }
