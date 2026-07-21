@@ -64,7 +64,7 @@
         <div class="text-center">
             <div class="inline-block p-3 bg-indigo-500/20 rounded-2xl mb-4 text-indigo-400 text-3xl">🎨</div>
             <h1 class="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent mb-2">Vibe Check Online</h1>
-            <p class="text-slate-400 text-sm mb-8">เกมทายใจเพื่อนร่วมทีมแบบเรียลไทม์ พร้อมเลือกสีประจำตัวสไตล์คุณ</p>
+            <p class="text-slate-400 text-sm mb-8">เกมทายใจเพื่อนร่วมทีมแบบเรียลไทม์ พร้อมเลือกสีแถบประจำตัวสไตล์คุณ</p>
             
             <div class="space-y-3">
                 <button onclick="renderHostSetup()" class="w-full glow-btn text-white font-medium py-3.5 rounded-xl cursor-pointer">🏠 สร้างห้องใหม่ (Host)</button>
@@ -85,17 +85,16 @@
             "จาก 1 ถึง 10 ความมั่นใจว่าคุณจะตอบคำถามข้อนี้ตรงใจเพื่อนที่สุด"
         ];
 
-        // 9 สีเป๊ะๆ: แดง, ชมพู, เขียว, ม่วง, เหลือง, ส้ม, ฟ้า, ขาว, ดำ
         const availableColors = [
-            "#FF0000",
-            "#FF1493",
-            "#00FF00",
-            "#8A2BE2",
-            "#FFFF00",
-            "#FF6600",
-            "#00E5FF",
-            "#FFFFFF",
-            "#000000"
+            "#DC2626", // แดง
+            "#DB2777", // ชมพู
+            "#16A34A", // เขียว
+            "#7C3AED", // ม่วง
+            "#CA8A04", // เหลืองเข้ม
+            "#EA580C", // ส้ม
+            "#0284C7", // ฟ้า
+            "#475569", // เทาเข้ม
+            "#1E293B"  // ดำน้ำเงิน
         ];
 
         let peer = null;
@@ -113,19 +112,17 @@
             stars: 0,
             placedChain: [],      
             placementQueue: [],   
-            currentPlacerId: ""   
+            currentPlacerId: "",
+            currentRevealIndex: 0,
+            earnedScore: 0
         };
 
         const app = document.getElementById("app");
 
-        function renderSvgBadge(hexColor, size = 18) {
-            return `<span class="inline-block rounded-full border border-white flex-shrink-0" style="width:${size}px; height:${size}px; background-color:${hexColor} !important; color-scheme:light; forced-color-adjust:none;"></span>`;
-        }
-
         function renderColorPickerHTML(selectedHex) {
             let html = `
                 <div class="mb-5">
-                    <label class="block text-xs text-slate-400 mb-3">เลือกสีประจำตัวของคุณ</label>
+                    <label class="block text-xs text-slate-400 mb-3">เลือกสีแถบประจำตัวของคุณ</label>
                     <div class="flex flex-wrap justify-center gap-3.5 max-w-[280px] mx-auto pb-2">
             `;
             availableColors.forEach(hex => {
@@ -156,7 +153,7 @@
             app.innerHTML = `
                 <div class="animate-fade-in">
                     <h2 class="text-2xl font-bold mb-2 text-center">🏠 สร้างห้องออนไลน์</h2>
-                    <p class="text-slate-400 text-sm mb-4 text-center">ตั้งชื่อและเลือกสีประจำตัวของคุณ</p>
+                    <p class="text-slate-400 text-sm mb-4 text-center">ตั้งชื่อและเลือกสีแถบประจำตัวของคุณ</p>
                     <input type="text" id="host-name" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white text-center mb-5 focus:outline-none focus:border-indigo-500" value="หัวหน้าห้อง">
                     ${renderColorPickerHTML(myColor)}
                     <button onclick="createRoom()" class="w-full glow-btn text-white font-medium py-3.5 rounded-xl cursor-pointer mt-2">เปิดห้องและรับรหัส 🎲</button>
@@ -180,14 +177,11 @@
                         <div class="bg-slate-900 border border-indigo-500/40 p-3 rounded-xl text-indigo-300 font-mono text-xs select-all mb-4 break-all shadow-[0_0_15px_rgba(99,102,241,0.2)]">
                             ${id}
                         </div>
-                        <div class="bg-white/5 p-4 rounded-xl text-left mb-6 border border-white/10">
-                            <span class="text-xs text-slate-400 block mb-2 font-semibold">ผู้เล่นในห้องตอนนี้:</span>
-                            <ul id="lobby-players" class="space-y-2 text-sm">
-                                <li class="flex items-center gap-2 text-slate-200">
-                                    ${renderSvgBadge(myColor)}
-                                    ${myName} (Host)
-                                </li>
-                            </ul>
+                        <div class="space-y-2 mb-6 text-left" id="lobby-players">
+                            <div class="p-3 rounded-xl text-white font-medium shadow-md flex justify-between items-center" style="background-color: ${myColor} !important;">
+                                <span>${myName} (Host)</span>
+                                <span class="text-xs bg-black/30 px-2 py-1 rounded">พร้อม</span>
+                            </div>
                         </div>
                         <button id="start-btn" onclick="startHostGame()" disabled class="w-full bg-slate-800 text-slate-500 font-medium py-3.5 rounded-xl cursor-not-allowed">รอเพื่อนเข้าห้อง (อย่างน้อย 2 คน)...</button>
                     </div>
@@ -222,10 +216,10 @@
             const listEl = document.getElementById("lobby-players");
             if(listEl) {
                 listEl.innerHTML = gameData.players.map(p => `
-                    <li class="flex items-center gap-2 text-slate-200">
-                        ${renderSvgBadge(p.color)}
-                        ${p.name}
-                    </li>
+                    <div class="p-3 rounded-xl text-white font-medium shadow-md flex justify-between items-center" style="background-color: ${p.color} !important;">
+                        <span>${p.name}</span>
+                        <span class="text-xs bg-black/30 px-2 py-1 rounded">พร้อม</span>
+                    </div>
                 `).join('');
             }
             if (gameData.players.length >= 2) {
@@ -249,7 +243,7 @@
             app.innerHTML = `
                 <div class="animate-fade-in">
                     <h2 class="text-2xl font-bold mb-2 text-center">🔗 เข้าร่วมห้องเพื่อน</h2>
-                    <p class="text-slate-400 text-sm mb-4 text-center">ใส่ชื่อ เลือกสี และวางไอดีห้องจาก Host</p>
+                    <p class="text-slate-400 text-sm mb-4 text-center">ใส่ชื่อ เลือกสีแถบ และวางไอดีห้องจาก Host</p>
                     <input type="text" id="join-name" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white text-center mb-5 focus:outline-none focus:border-indigo-500" placeholder="ชื่อของคุณ" value="ผู้เล่น">
                     ${renderColorPickerHTML(myColor)}
                     <textarea id="host-id-input" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white text-center text-xs mb-6 focus:outline-none focus:border-indigo-500 h-20 mt-2" placeholder="วางไอดีห้องของ Host ตรงนี้"></textarea>
@@ -277,9 +271,8 @@
                         <div class="animate-fade-in text-center">
                             <h2 class="text-xl font-bold mb-2 text-emerald-400">✨ เข้าห้องสำเร็จ!</h2>
                             <p class="text-slate-300 text-sm mb-4">รอหัวหน้าห้องกดเริ่มเกม...</p>
-                            <div class="bg-white/5 p-4 rounded-xl text-left flex items-center gap-3 border border-white/10">
-                                ${renderSvgBadge(myColor)}
-                                <span class="text-sm text-emerald-300 font-medium">เชื่อมต่อสำเร็จ (${myName})</span>
+                            <div class="p-4 rounded-xl text-white font-medium shadow-md" style="background-color: ${myColor} !important;">
+                                เชื่อมต่อสำเร็จ (${myName})
                             </div>
                         </div>
                     `;
@@ -311,9 +304,8 @@
                         <span class="text-xs text-indigo-300 block mb-1">คำถามประจำรอบ</span>
                         <p class="text-lg font-medium text-white">"${qText}"</p>
                     </div>
-                    <div class="bg-white/5 border border-white/10 p-3 rounded-xl mb-6 text-sm flex items-center gap-2">
-                        ${renderSvgBadge(myColor)}
-                        <span>ตาของ <b>${playerName}</b> กรอกตัวเลขลับส่วนตัว</span>
+                    <div class="p-3 rounded-xl mb-6 text-sm text-white font-medium shadow-md" style="background-color: ${myColor} !important;">
+                        ตาของ <b>${playerName}</b> กรอกตัวเลขลับส่วนตัว
                     </div>
                     <input type="number" id="secret-ans" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-4 text-2xl text-center text-white font-bold focus:outline-none focus:border-indigo-500 mb-6" placeholder="ใส่ตัวเลขคำตอบ">
                     <button onclick="submitAnswer()" class="w-full glow-btn text-white font-medium py-3.5 rounded-xl cursor-pointer">ส่งคำตอบลับ 🚀</button>
@@ -352,7 +344,7 @@
 
         function processNextPlacer() {
             if (gameData.placementQueue.length === 0) {
-                evaluateAndScoreHost();
+                startRevealSequenceHost();
                 return;
             }
             const currentPlacer = gameData.placementQueue[0];
@@ -378,11 +370,10 @@
                         <span>รอบที่ ${gameData.round} / 8</span>
                         <span>เฟสวางตำแหน่ง</span>
                     </div>
-                    <h2 class="text-xl font-bold mb-1 text-center flex items-center justify-center gap-2">
-                        ${renderSvgBadge(placerObj.color)}
-                        ตาของ <span class="text-indigo-400">${placerObj.name}</span>
-                    </h2>
-                    <p class="text-xs text-slate-400 text-center mb-4">${isMyTurn ? 'เลือกตำแหน่งที่คุณต้องการวางการ์ด (วางแล้วย้ายไม่ได้!)' : 'กำลังรอเพื่อนเลือกวางตำแหน่ง...'}</p>
+                    <div class="p-3 rounded-xl mb-4 text-white text-center font-bold shadow-md" style="background-color: ${placerObj.color} !important;">
+                        ตาของ ${placerObj.name} วางการ์ด
+                    </div>
+                    <p class="text-xs text-slate-400 text-center mb-4">${isMyTurn ? 'เลือกตำแหน่งที่คุณต้องการวางการ์ด' : 'กำลังรอเพื่อนเลือกวางตำแหน่ง...'}</p>
 
                     <div class="bg-slate-900/60 p-3 rounded-xl border border-white/5 mb-4 text-xs text-slate-300">
                         <b>คำถาม:</b> ${qText}
@@ -405,12 +396,9 @@
                     `;
                     gameData.placedChain.forEach((item, idx) => {
                         html += `
-                            <div class="bg-slate-800/80 p-3 rounded-xl border border-slate-700 flex justify-between items-center shadow-md">
-                                <span class="font-medium text-sm flex items-center gap-2 text-slate-200">
-                                    ${renderSvgBadge(item.color)}
-                                    ${item.name}
-                                </span>
-                                <span class="text-xs bg-slate-700 px-2.5 py-1 rounded-lg text-slate-300">ล็อคแล้ว</span>
+                            <div class="p-3 rounded-xl text-white font-medium flex justify-between items-center shadow-md" style="background-color: ${item.color} !important;">
+                                <span>${item.name}</span>
+                                <span class="text-xs bg-black/30 px-2 py-1 rounded">ล็อคแล้ว</span>
                             </div>
                             <button onclick="submitPlacement(${idx + 1})" class="w-full py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-dashed border-indigo-400/40 rounded-xl text-indigo-300 text-xs transition cursor-pointer">
                                 ➕ แทรกระหว่างกลาง / วางข้างล่าง
@@ -424,12 +412,9 @@
                 } else {
                     gameData.placedChain.forEach((item) => {
                         html += `
-                            <div class="bg-slate-800/80 p-3 rounded-xl border border-slate-700 flex justify-between items-center shadow-md">
-                                <span class="font-medium text-sm flex items-center gap-2 text-slate-200">
-                                    ${renderSvgBadge(item.color)}
-                                    ${item.name}
-                                </span>
-                                <span class="text-xs bg-slate-700 px-2.5 py-1 rounded-lg text-slate-300">ล็อคแล้ว</span>
+                            <div class="p-3 rounded-xl text-white font-medium flex justify-between items-center shadow-md" style="background-color: ${item.color} !important;">
+                                <span>${item.name}</span>
+                                <span class="text-xs bg-black/30 px-2 py-1 rounded">ล็อคแล้ว</span>
                             </div>
                         `;
                     });
@@ -452,7 +437,8 @@
             }
         }
 
-        function evaluateAndScoreHost() {
+        // ==================== REVEAL PHASE (BOTTOM TO TOP) ====================
+        function startRevealSequenceHost() {
             let correctCount = 0;
             for (let i = 0; i < gameData.placedChain.length; i++) {
                 if (i === 0) {
@@ -463,34 +449,87 @@
                     }
                 }
             }
-            let earned = (correctCount === gameData.placedChain.length) ? gameData.placedChain.length : Math.max(0, correctCount - 1);
-            gameData.stars += earned;
+            gameData.earnedScore = (correctCount === gameData.placedChain.length) ? gameData.placedChain.length : Math.max(0, correctCount - 1);
+            gameData.currentRevealIndex = 0;
 
+            broadcastAndRenderRevealStep();
+        }
+
+        function broadcastAndRenderRevealStep() {
             broadcast({
-                type: 'SHOW_RESULTS',
+                type: 'REVEAL_STEP',
+                revealIndex: gameData.currentRevealIndex,
                 placedChain: gameData.placedChain,
-                earned: earned,
-                totalStars: gameData.stars,
-                round: gameData.round
+                earned: gameData.earnedScore,
+                totalStars: gameData.stars
             });
-            renderResultScreen(gameData.placedChain, earned, gameData.stars);
+            renderRevealStepScreen();
+        }
+
+        function renderRevealStepScreen() {
+            let html = `
+                <div class="animate-fade-in text-center">
+                    <h2 class="text-2xl font-bold mb-1">🔍 กำลังเปิดเผยคำตอบรอบที่ ${gameData.round}</h2>
+                    <p class="text-slate-400 text-sm mb-4">เปิดทีละใบจากล่างขึ้นบน...</p>
+                    <div class="space-y-3 mb-6">
+            `;
+
+            gameData.placedChain.forEach((item, idx) => {
+                let isRevealed = idx <= gameData.currentRevealIndex;
+                if (isRevealed) {
+                    html += `
+                        <div class="p-4 rounded-xl text-white font-bold flex justify-between items-center shadow-lg animate-fade-in border border-white/20" style="background-color: ${item.color} !important;">
+                            <span>${item.name}</span>
+                            <span class="text-2xl bg-black/20 px-3 py-1 rounded-lg">${item.value}</span>
+                        </div>
+                    `;
+                } else {
+                    html += `
+                        <div class="p-4 rounded-xl text-slate-400 font-bold flex justify-between items-center shadow-md bg-slate-800/80 border border-slate-700 opacity-60">
+                            <span>${item.name}</span>
+                            <span class="text-xl text-indigo-400">???</span>
+                        </div>
+                    `;
+                }
+            });
+
+            html += `</div></div>`;
+            app.innerHTML = html;
+
+            if (isHost) {
+                if (gameData.currentRevealIndex < gameData.placedChain.length - 1) {
+                    setTimeout(() => {
+                        gameData.currentRevealIndex++;
+                        broadcastAndRenderRevealStep();
+                    }, 2000);
+                } else {
+                    setTimeout(() => {
+                        gameData.stars += gameData.earnedScore;
+                        broadcast({
+                            type: 'SHOW_FINAL_RESULT',
+                            placedChain: gameData.placedChain,
+                            earned: gameData.earnedScore,
+                            totalStars: gameData.stars,
+                            round: gameData.round
+                        });
+                        renderResultScreen(gameData.placedChain, gameData.earnedScore, gameData.stars);
+                    }, 2000);
+                }
+            }
         }
 
         function renderResultScreen(chain, earned, totalStars) {
             let html = `
                 <div class="animate-fade-in text-center">
                     <h2 class="text-2xl font-bold mb-1">🎉 ผลลัพธ์รอบที่ ${gameData.round}</h2>
-                    <p class="text-slate-400 text-sm mb-4">เปิดตัวเลขจริงเรียงจากน้อยไปมาก:</p>
+                    <p class="text-slate-400 text-sm mb-4">เปิดตัวเลขจริงครบแล้ว:</p>
                     <div class="space-y-2 mb-6">
             `;
             chain.forEach(item => {
                 html += `
-                    <div class="bg-slate-800/90 border border-slate-600/50 p-3.5 rounded-xl flex justify-between items-center shadow-lg">
-                        <span class="font-medium text-slate-200 flex items-center gap-2">
-                            ${renderSvgBadge(item.color)}
-                            ${item.name}
-                        </span>
-                        <span class="text-xl font-bold text-indigo-400">${item.value}</span>
+                    <div class="p-3.5 rounded-xl text-white font-bold flex justify-between items-center shadow-lg border border-white/20" style="background-color: ${item.color} !important;">
+                        <span>${item.name}</span>
+                        <span class="text-xl bg-black/20 px-3 py-1 rounded-lg">${item.value}</span>
                     </div>
                 `;
             });
@@ -550,10 +589,10 @@
             if (data.type === 'UPDATE_LOBBY') { gameData.players = data.players; updateLobbyUI(); }
             if (data.type === 'START_GAME') { gameData.round = data.round; renderQuestionScreen(myName, gameData.round); }
             if (data.type === 'UPDATE_PLACEMENT_TURN') { gameData.placedChain = data.placedChain; renderPlacementScreen(data.currentPlacer); }
-            if (data.type === 'SHOW_RESULTS') { renderResultScreen(data.placedChain, data.earned, data.totalStars); }
+            if (data.type === 'REVEAL_STEP') { gameData.placedChain = data.placedChain; gameData.currentRevealIndex = data.revealIndex; renderRevealStepScreen(); }
+            if (data.type === 'SHOW_FINAL_RESULT') { renderResultScreen(data.placedChain, data.earned, data.totalStars); }
             if (data.type === 'GAME_OVER') { renderGameOverScreen(data.totalStars, data.playersCount); }
         }
     </script>
 </body>
 </html>
-
