@@ -318,6 +318,9 @@
             if (val === "") { alert("กรุณากรอกตัวเลข"); return; }
             const numVal = parseFloat(val);
 
+            // บันทึกคำตอบไว้ที่ฝั่งตัวเองด้วย (แก้ปัญหาค่าเป็น null)
+            gameData.answers[myName] = numVal;
+
             app.innerHTML = `
                 <div class="animate-fade-in text-center py-8">
                     <div class="text-3xl mb-2">✅</div>
@@ -327,7 +330,6 @@
             `;
 
             if (isHost) {
-                gameData.answers[myName] = numVal;
                 if (Object.keys(gameData.answers).length === gameData.players.length) {
                     startPlacementPhaseHost();
                 }
@@ -344,7 +346,6 @@
 
         function processNextPlacer() {
             if (gameData.placementQueue.length === 0) {
-                // วางครบแล้ว ให้ Host แสดงปุ่มกดเริ่มเฉลย และบอกลูกค้า
                 broadcast({ type: 'WAITING_FOR_REVEAL', placedChain: gameData.placedChain });
                 renderReadyToRevealScreen();
                 return;
@@ -393,7 +394,7 @@
                 } else {
                     html += `
                         <button onclick="submitPlacement(0)" class="w-full py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-dashed border-indigo-400/40 rounded-xl text-indigo-300 text-xs transition cursor-pointer">
-                            ➕ วางไว้บนสุด (น้อยที่สุด)
+                            ➕ วางไว้บนสุด
                         </button>
                     `;
                     gameData.placedChain.forEach((item, idx) => {
@@ -429,6 +430,10 @@
 
         function submitPlacement(insertIndex) {
             const myVal = gameData.answers[myName];
+            if (myVal === undefined) {
+                alert("ไม่พบคำตอบของคุณ กรุณาลองใหม่อีกครั้ง");
+                return;
+            }
             if (isHost) {
                 gameData.placedChain.splice(insertIndex, 0, { name: myName, value: myVal, color: myColor });
                 gameData.placementQueue.shift();
@@ -439,7 +444,6 @@
             }
         }
 
-        // หน้าจอรอ Host กดปุ่มเริ่มเฉลย
         function renderReadyToRevealScreen() {
             let html = `
                 <div class="animate-fade-in text-center">
@@ -465,7 +469,6 @@
         }
 
         function hostTriggerReveal() {
-            // คำนวณคะแนนตามกฎใหม่
             let chain = gameData.placedChain;
             let earned = 1;
             if (chain.length > 1) {
@@ -498,7 +501,7 @@
                     setTimeout(() => {
                         gameData.revealCount++;
                         broadcastAndRunRevealStep();
-                    }, 2500); // 2.5 วินาทีต่อตำแหน่ง
+                    }, 2500); 
                 } else {
                     setTimeout(() => {
                         gameData.stars += gameData.earnedScore;
@@ -515,7 +518,7 @@
             }
         }
 
-        // เปิดเผยจากล่างขึ้นบน
+        // เปิดเผยจากล่างขึ้นบนอย่างช้าๆ
         function renderRevealStepScreen() {
             let chain = gameData.placedChain;
             let count = gameData.revealCount;
@@ -534,7 +537,7 @@
                     html += `
                         <div class="p-4 rounded-xl text-white font-bold flex justify-between items-center shadow-lg animate-fade-in border border-white/20" style="background-color: ${item.color} !important;">
                             <span>${item.name}</span>
-                            <span class="text-2xl bg-black/20 px-3 py-1 rounded-lg">${item.value}</span>
+                            <span class="text-2xl bg-black/20 px-3 py-1 rounded-lg">${item.value !== undefined ? item.value : '-'}</span>
                         </div>
                     `;
                 } else {
@@ -562,7 +565,7 @@
                 html += `
                     <div class="p-3.5 rounded-xl text-white font-bold flex justify-between items-center shadow-lg border border-white/20" style="background-color: ${item.color} !important;">
                         <span>${item.name}</span>
-                        <span class="text-xl bg-black/20 px-3 py-1 rounded-lg">${item.value}</span>
+                        <span class="text-xl bg-black/20 px-3 py-1 rounded-lg">${item.value !== undefined ? item.value : '-'}</span>
                     </div>
                 `;
             });
