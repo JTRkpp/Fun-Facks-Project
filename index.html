@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vibe Check - Online Multiplayer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Font: Kanit -->
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- PeerJS -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body {
+            font-family: 'Kanit', sans-serif;
+            background: radial-gradient(circle at top, #1e1b4b, #0f172a);
+            color: #f8fafc;
+            min-height: 100vh;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        .glow-btn {
+            background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            transition: all 0.3s ease;
+            box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+        }
+        .glow-btn-sec {
+            background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+        }
+        .color-dot {
+            width: 36px;
+            height: 36px;
+            border-radius: 9999px;
+            cursor: pointer;
+            transition: transform 0.2s, filter 0.2s;
+            display: inline-block;
+            border: 2px solid #ffffff;
+            color-scheme: light;
+            forced-color-adjust: none;
+        }
+        .color-dot.selected {
+            transform: scale(1.25);
+            box-shadow: 0 0 12px rgba(255, 255, 255, 0.9);
+            z-index: 10;
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center p-4">
+
+    <div class="w-full max-w-lg glass-card rounded-3xl p-6 md:p-8 animate-fade-in" id="app">
+        <div class="text-center">
+            <div class="inline-block p-3 bg-indigo-500/20 rounded-2xl mb-4 text-indigo-400 text-3xl">🎨</div>
+            <h1 class="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent mb-2">Vibe Check Online</h1>
+            <p class="text-slate-400 text-sm mb-8">เกมทายใจเพื่อนร่วมทีมแบบเรียลไทม์ พร้อมเลือกสีประจำตัวสไตล์คุณ</p>
+            
+            <div class="space-y-3">
+                <button onclick="renderHostSetup()" class="w-full glow-btn text-white font-medium py-3.5 rounded-xl cursor-pointer">🏠 สร้างห้องใหม่ (Host)</button>
+                <button onclick="renderJoinSetup()" class="w-full glow-btn-sec text-white font-medium py-3.5 rounded-xl cursor-pointer">🔗 เข้าร่วมห้องเพื่อน (Join)</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const questions = [
+            "จาก 1 ถึง 100 คุณใช้เวลาไถโซเชียลมีเดียวันละกี่ชั่วโมง?",
+            "จาก 1 ถึง 10 คุณชอบกินผักมากแค่ไหน?",
+            "จาก 1 ถึง 100 เปอร์เซ็นต์ โอกาสที่คุณจะตื่นสายในวันหยุดคือเท่าไหร่?",
+            "จาก 1 ถึง 10 คุณมีความตื่นเต้นแค่ไหนเวลากดสั่งของออนไลน์?",
+            "จาก 1 ถึง 100 ปีที่คุณอยากย้อนเวลากลับไปมากที่สุด (เช่น 2010, 2015)",
+            "จาก 1 ถึง 10 ความขี้เกียจออกกำลังกายของคุณอยู่ที่ระดับเท่าไหร่?",
+            "จาก 1 ถึง 100 จำนวนเงิน (บาท) ที่คุณมักจะเสียโดยไม่จำเป็นต่อสัปดาห์ / 10",
+            "จาก 1 ถึง 10 ความมั่นใจว่าคุณจะตอบคำถามข้อนี้ตรงใจเพื่อนที่สุด"
+        ];
+
+        // 9 สีเป๊ะๆ: แดง, ชมพู, เขียว, ม่วง, เหลือง, ส้ม, ฟ้า, ขาว, ดำ
+        const availableColors = [
+            "#FF0000",
+            "#FF1493",
+            "#00FF00",
+            "#8A2BE2",
+            "#FFFF00",
+            "#FF6600",
+            "#00E5FF",
+            "#FFFFFF",
+            "#000000"
+        ];
+
+        let peer = null;
+        let conn = null;
+        let connections = [];
+        let myName = "";
+        let myColor = availableColors[0];
+        let isHost = false;
+        
+        let gameData = {
+            players: [],          
+            answers: {},          
+            round: 1,
+            totalRounds: 8,
+            stars: 0,
+            placedChain: [],      
+            placementQueue: [],   
+            currentPlacerId: ""   
+        };
+
+        const app = document.getElementById("app");
+
+        function renderSvgBadge(hexColor, size = 18) {
+            return `<span class="inline-block rounded-full border border-white flex-shrink-0" style="width:${size}px; height:${size}px; background-color:${hexColor} !important; color-scheme:light; forced-color-adjust:none;"></span>`;
+        }
+
+        function renderColorPickerHTML(selectedHex) {
+            let html = `
+                <div class="mb-5">
+                    <label class="block text-xs text-slate-400 mb-3">เลือกสีประจำตัวของคุณ</label>
+                    <div class="flex flex-wrap justify-center gap-3.5 max-w-[280px] mx-auto pb-2">
+            `;
+            availableColors.forEach(hex => {
+                let isSel = (hex === selectedHex) ? "selected" : "";
+                html += `
+                    <div class="color-dot ${isSel}" data-color="${hex}" style="background-color: ${hex} !important;" onclick="chooseColor('${hex}')"></div>
+                `;
+            });
+            html += `</div></div>`;
+            return html;
+        }
+
+        function chooseColor(hex) {
+            myColor = hex;
+            document.querySelectorAll('.color-dot').forEach(dot => {
+                if (dot.getAttribute('data-color') === hex) {
+                    dot.classList.add('selected');
+                } else {
+                    dot.classList.remove('selected');
+                }
+            });
+        }
+
+        // ==================== HOST SETUP ====================
+        function renderHostSetup() {
+            isHost = true;
+            myColor = availableColors[0];
+            app.innerHTML = `
+                <div class="animate-fade-in">
+                    <h2 class="text-2xl font-bold mb-2 text-center">🏠 สร้างห้องออนไลน์</h2>
+                    <p class="text-slate-400 text-sm mb-4 text-center">ตั้งชื่อและเลือกสีประจำตัวของคุณ</p>
+                    <input type="text" id="host-name" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white text-center mb-5 focus:outline-none focus:border-indigo-500" value="หัวหน้าห้อง">
+                    ${renderColorPickerHTML(myColor)}
+                    <button onclick="createRoom()" class="w-full glow-btn text-white font-medium py-3.5 rounded-xl cursor-pointer mt-2">เปิดห้องและรับรหัส 🎲</button>
+                </div>
+            `;
+        }
+
+        function createRoom() {
+            myName = document.getElementById("host-name").value.trim() || "หัวหน้าห้อง";
+            app.innerHTML = `<div class="text-center py-8"><div class="animate-spin text-indigo-400 text-3xl mb-2">⏳</div><p class="text-slate-300">กำลังสร้างห้องบนเซิร์ฟเวอร์...</p></div>`;
+
+            peer = new Peer();
+
+            peer.on('open', (id) => {
+                gameData.players.push({ id: id, name: myName, color: myColor });
+
+                app.innerHTML = `
+                    <div class="animate-fade-in text-center">
+                        <h2 class="text-xl font-bold mb-2">🏠 ห้องของคุณพร้อมแล้ว!</h2>
+                        <p class="text-slate-400 text-xs mb-2">ส่งไอดีห้องนี้ให้เพื่อนกดเข้าร่วม:</p>
+                        <div class="bg-slate-900 border border-indigo-500/40 p-3 rounded-xl text-indigo-300 font-mono text-xs select-all mb-4 break-all shadow-[0_0_15px_rgba(99,102,241,0.2)]">
+                            ${id}
+                        </div>
+                        <div class="bg-white/5 p-4 rounded-xl text-left mb-6 border border-white/10">
+                            <span class="text-xs text-slate-400 block mb-2 font-semibold">ผู้เล่นในห้องตอนนี้:</span>
+                            <ul id="lobby-players" class="space-y-2 text-sm">
+                                <li class="flex items-center gap-2 text-slate-200">
+                                    ${renderSvgBadge(myColor)}
+                                    ${myName} (Host)
+                                </li>
+                            </ul>
+                        </div>
+                        <button id="start-btn" onclick="startHostGame()" disabled class="w-full bg-slate-800 text-slate-500 font-medium py-3.5 rounded-xl cursor-not-allowed">รอเพื่อนเข้าห้อง (อย่างน้อย 2 คน)...</button>
+                    </div>
+                `;
+            });
+
+            peer.on('connection', (connection) => {
+                connections.push(connection);
+
+                connection.on('data', (data) => {
+                    if (data.type === 'JOIN') {
+                        gameData.players.push({ id: connection.peer, name: data.name, color: data.color });
+                        updateLobbyUI();
+                        broadcast({ type: 'UPDATE_LOBBY', players: gameData.players });
+                    }
+                    if (data.type === 'SUBMIT_ANSWER') {
+                        gameData.answers[data.name] = data.value;
+                        if (Object.keys(gameData.answers).length === gameData.players.length) {
+                            startPlacementPhaseHost();
+                        }
+                    }
+                    if (data.type === 'PLACE_CARD') {
+                        gameData.placedChain.splice(data.insertIndex, 0, { name: data.name, value: data.value, color: data.color });
+                        gameData.placementQueue.shift();
+                        processNextPlacer();
+                    }
+                });
+            });
+        }
+
+        function updateLobbyUI() {
+            const listEl = document.getElementById("lobby-players");
+            if(listEl) {
+                listEl.innerHTML = gameData.players.map(p => `
+                    <li class="flex items-center gap-2 text-slate-200">
+                        ${renderSvgBadge(p.color)}
+                        ${p.name}
+                    </li>
+                `).join('');
+            }
+            if (gameData.players.length >= 2) {
+                const btn = document.getElementById("start-btn");
+                if(btn) {
+                    btn.disabled = false;
+                    btn.className = "w-full glow-btn text-white font-medium py-3.5 rounded-xl cursor-pointer";
+                    btn.innerText = "เริ่มเกมลุยกันเลย! 🚀";
+                }
+            }
+        }
+
+        function broadcast(msg) {
+            connections.forEach(c => c.send(msg));
+        }
+
+        // ==================== JOIN SETUP ====================
+        function renderJoinSetup() {
+            isHost = false;
+            myColor = availableColors[1];
+            app.innerHTML = `
+                <div class="animate-fade-in">
+                    <h2 class="text-2xl font-bold mb-2 text-center">🔗 เข้าร่วมห้องเพื่อน</h2>
+                    <p class="text-slate-400 text-sm mb-4 text-center">ใส่ชื่อ เลือกสี และวางไอดีห้องจาก Host</p>
+                    <input type="text" id="join-name" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white text-center mb-5 focus:outline-none focus:border-indigo-500" placeholder="ชื่อของคุณ" value="ผู้เล่น">
+                    ${renderColorPickerHTML(myColor)}
+                    <textarea id="host-id-input" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white text-center text-xs mb-6 focus:outline-none focus:border-indigo-500 h-20 mt-2" placeholder="วางไอดีห้องของ Host ตรงนี้"></textarea>
+                    <button onclick="joinRoom()" class="w-full glow-btn-sec text-white font-medium py-3.5 rounded-xl cursor-pointer">เชื่อมต่อเข้าห้อง 🚪</button>
+                </div>
+            `;
+        }
+
+        function joinRoom() {
+            myName = document.getElementById("join-name").value.trim() || "ผู้เล่น";
+            const hostId = document.getElementById("host-id-input").value.trim();
+
+            if (!hostId) { alert("กรุณากรอกไอดีห้องของ Host"); return; }
+
+            app.innerHTML = `<div class="text-center py-8"><div class="animate-spin text-emerald-400 text-3xl mb-2">⏳</div><p class="text-slate-300">กำลังเชื่อมต่อเข้าสู่ห้อง...</p></div>`;
+
+            peer = new Peer();
+
+            peer.on('open', (id) => {
+                conn = peer.connect(hostId);
+
+                conn.on('open', () => {
+                    conn.send({ type: 'JOIN', name: myName, color: myColor });
+                    app.innerHTML = `
+                        <div class="animate-fade-in text-center">
+                            <h2 class="text-xl font-bold mb-2 text-emerald-400">✨ เข้าห้องสำเร็จ!</h2>
+                            <p class="text-slate-300 text-sm mb-4">รอหัวหน้าห้องกดเริ่มเกม...</p>
+                            <div class="bg-white/5 p-4 rounded-xl text-left flex items-center gap-3 border border-white/10">
+                                ${renderSvgBadge(myColor)}
+                                <span class="text-sm text-emerald-300 font-medium">เชื่อมต่อสำเร็จ (${myName})</span>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                conn.on('data', (data) => {
+                    handleClientData(data);
+                });
+            });
+        }
+
+        // ==================== GAME FLOW ====================
+        function startHostGame() {
+            gameData.round = 1;
+            gameData.stars = 0;
+            broadcast({ type: 'START_GAME', round: gameData.round });
+            renderQuestionScreen(myName, gameData.round);
+        }
+
+        function renderQuestionScreen(playerName, roundNum) {
+            const qText = questions[roundNum - 1];
+            app.innerHTML = `
+                <div class="animate-fade-in">
+                    <div class="flex justify-between items-center mb-3 text-xs font-semibold tracking-wider text-indigo-400 uppercase">
+                        <span>รอบที่ ${roundNum} / 8</span>
+                        <span>⭐ ดาวสะสม: ${gameData.stars}</span>
+                    </div>
+                    <div class="bg-indigo-950/40 border border-indigo-500/20 p-4 rounded-2xl mb-6">
+                        <span class="text-xs text-indigo-300 block mb-1">คำถามประจำรอบ</span>
+                        <p class="text-lg font-medium text-white">"${qText}"</p>
+                    </div>
+                    <div class="bg-white/5 border border-white/10 p-3 rounded-xl mb-6 text-sm flex items-center gap-2">
+                        ${renderSvgBadge(myColor)}
+                        <span>ตาของ <b>${playerName}</b> กรอกตัวเลขลับส่วนตัว</span>
+                    </div>
+                    <input type="number" id="secret-ans" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-4 text-2xl text-center text-white font-bold focus:outline-none focus:border-indigo-500 mb-6" placeholder="ใส่ตัวเลขคำตอบ">
+                    <button onclick="submitAnswer()" class="w-full glow-btn text-white font-medium py-3.5 rounded-xl cursor-pointer">ส่งคำตอบลับ 🚀</button>
+                </div>
+            `;
+        }
+
+        function submitAnswer() {
+            const val = document.getElementById("secret-ans").value;
+            if (val === "") { alert("กรุณากรอกตัวเลข"); return; }
+            const numVal = parseFloat(val);
+
+            app.innerHTML = `
+                <div class="animate-fade-in text-center py-8">
+                    <div class="text-3xl mb-2">✅</div>
+                    <h2 class="text-xl font-bold mb-1">บันทึกคำตอบแล้ว</h2>
+                    <p class="text-slate-400 text-sm">กำลังรอเพื่อนๆ ทุกคนส่งคำตอบ...</p>
+                </div>
+            `;
+
+            if (isHost) {
+                gameData.answers[myName] = numVal;
+                if (Object.keys(gameData.answers).length === gameData.players.length) {
+                    startPlacementPhaseHost();
+                }
+            } else {
+                conn.send({ type: 'SUBMIT_ANSWER', name: myName, value: numVal });
+            }
+        }
+
+        function startPlacementPhaseHost() {
+            gameData.placedChain = [];
+            gameData.placementQueue = [...gameData.players].sort(() => Math.random() - 0.5);
+            processNextPlacer();
+        }
+
+        function processNextPlacer() {
+            if (gameData.placementQueue.length === 0) {
+                evaluateAndScoreHost();
+                return;
+            }
+            const currentPlacer = gameData.placementQueue[0];
+            gameData.currentPlacerId = currentPlacer.id;
+
+            broadcast({
+                type: 'UPDATE_PLACEMENT_TURN',
+                currentPlacer: currentPlacer,
+                placedChain: gameData.placedChain,
+                round: gameData.round
+            });
+
+            renderPlacementScreen(currentPlacer);
+        }
+
+        function renderPlacementScreen(placerObj) {
+            const isMyTurn = (placerObj.name === myName);
+            const qText = questions[gameData.round - 1];
+
+            let html = `
+                <div class="animate-fade-in">
+                    <div class="flex justify-between items-center mb-3 text-xs font-semibold tracking-wider text-indigo-400 uppercase">
+                        <span>รอบที่ ${gameData.round} / 8</span>
+                        <span>เฟสวางตำแหน่ง</span>
+                    </div>
+                    <h2 class="text-xl font-bold mb-1 text-center flex items-center justify-center gap-2">
+                        ${renderSvgBadge(placerObj.color)}
+                        ตาของ <span class="text-indigo-400">${placerObj.name}</span>
+                    </h2>
+                    <p class="text-xs text-slate-400 text-center mb-4">${isMyTurn ? 'เลือกตำแหน่งที่คุณต้องการวางการ์ด (วางแล้วย้ายไม่ได้!)' : 'กำลังรอเพื่อนเลือกวางตำแหน่ง...'}</p>
+
+                    <div class="bg-slate-900/60 p-3 rounded-xl border border-white/5 mb-4 text-xs text-slate-300">
+                        <b>คำถาม:</b> ${qText}
+                    </div>
+                    <div class="space-y-2 mb-6">
+            `;
+
+            if (isMyTurn) {
+                if (gameData.placedChain.length === 0) {
+                    html += `
+                        <button onclick="submitPlacement(0)" class="w-full py-4 bg-indigo-600/30 hover:bg-indigo-600/50 border-2 border-dashed border-indigo-400/50 rounded-xl text-indigo-200 font-medium transition cursor-pointer">
+                            📍 วางการ์ดแรกลงบนกระดาน
+                        </button>
+                    `;
+                } else {
+                    html += `
+                        <button onclick="submitPlacement(0)" class="w-full py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-dashed border-indigo-400/40 rounded-xl text-indigo-300 text-xs transition cursor-pointer">
+                            ➕ วางไว้บนสุด (น้อยที่สุด)
+                        </button>
+                    `;
+                    gameData.placedChain.forEach((item, idx) => {
+                        html += `
+                            <div class="bg-slate-800/80 p-3 rounded-xl border border-slate-700 flex justify-between items-center shadow-md">
+                                <span class="font-medium text-sm flex items-center gap-2 text-slate-200">
+                                    ${renderSvgBadge(item.color)}
+                                    ${item.name}
+                                </span>
+                                <span class="text-xs bg-slate-700 px-2.5 py-1 rounded-lg text-slate-300">ล็อคแล้ว</span>
+                            </div>
+                            <button onclick="submitPlacement(${idx + 1})" class="w-full py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-dashed border-indigo-400/40 rounded-xl text-indigo-300 text-xs transition cursor-pointer">
+                                ➕ แทรกระหว่างกลาง / วางข้างล่าง
+                            </button>
+                        `;
+                    });
+                }
+            } else {
+                if (gameData.placedChain.length === 0) {
+                    html += `<p class="text-center text-slate-400 text-sm py-4">กระดานยังว่างอยู่...</p>`;
+                } else {
+                    gameData.placedChain.forEach((item) => {
+                        html += `
+                            <div class="bg-slate-800/80 p-3 rounded-xl border border-slate-700 flex justify-between items-center shadow-md">
+                                <span class="font-medium text-sm flex items-center gap-2 text-slate-200">
+                                    ${renderSvgBadge(item.color)}
+                                    ${item.name}
+                                </span>
+                                <span class="text-xs bg-slate-700 px-2.5 py-1 rounded-lg text-slate-300">ล็อคแล้ว</span>
+                            </div>
+                        `;
+                    });
+                }
+            }
+
+            html += `</div></div>`;
+            app.innerHTML = html;
+        }
+
+        function submitPlacement(insertIndex) {
+            const myVal = gameData.answers[myName];
+            if (isHost) {
+                gameData.placedChain.splice(insertIndex, 0, { name: myName, value: myVal, color: myColor });
+                gameData.placementQueue.shift();
+                processNextPlacer();
+            } else {
+                conn.send({ type: 'PLACE_CARD', name: myName, value: myVal, color: myColor, insertIndex: insertIndex });
+                app.innerHTML = `<div class="text-center py-8"><p class="text-slate-300">ส่งตำแหน่งเรียบร้อย รอเพื่อนคนถัดไป...</p></div>`;
+            }
+        }
+
+        function evaluateAndScoreHost() {
+            let correctCount = 0;
+            for (let i = 0; i < gameData.placedChain.length; i++) {
+                if (i === 0) {
+                    correctCount++;
+                } else {
+                    if (gameData.placedChain[i].value >= gameData.placedChain[i-1].value) {
+                        correctCount++;
+                    }
+                }
+            }
+            let earned = (correctCount === gameData.placedChain.length) ? gameData.placedChain.length : Math.max(0, correctCount - 1);
+            gameData.stars += earned;
+
+            broadcast({
+                type: 'SHOW_RESULTS',
+                placedChain: gameData.placedChain,
+                earned: earned,
+                totalStars: gameData.stars,
+                round: gameData.round
+            });
+            renderResultScreen(gameData.placedChain, earned, gameData.stars);
+        }
+
+        function renderResultScreen(chain, earned, totalStars) {
+            let html = `
+                <div class="animate-fade-in text-center">
+                    <h2 class="text-2xl font-bold mb-1">🎉 ผลลัพธ์รอบที่ ${gameData.round}</h2>
+                    <p class="text-slate-400 text-sm mb-4">เปิดตัวเลขจริงเรียงจากน้อยไปมาก:</p>
+                    <div class="space-y-2 mb-6">
+            `;
+            chain.forEach(item => {
+                html += `
+                    <div class="bg-slate-800/90 border border-slate-600/50 p-3.5 rounded-xl flex justify-between items-center shadow-lg">
+                        <span class="font-medium text-slate-200 flex items-center gap-2">
+                            ${renderSvgBadge(item.color)}
+                            ${item.name}
+                        </span>
+                        <span class="text-xl font-bold text-indigo-400">${item.value}</span>
+                    </div>
+                `;
+            });
+            html += `
+                    </div>
+                    <div class="bg-indigo-950/50 border border-indigo-500/30 p-3.5 rounded-xl mb-6 text-indigo-300 text-sm font-medium">
+                        รอบนี้ทีมได้รับดาว: <span class="text-amber-400 text-lg font-bold">⭐ +${earned} ดวง</span> (รวมสะสม ${totalStars})
+                    </div>
+            `;
+            if (isHost) {
+                html += `<button onclick="nextRoundHost()" class="w-full glow-btn text-white font-medium py-3.5 rounded-xl cursor-pointer">รอบถัดไป ➡️</button>`;
+            } else {
+                html += `<p class="text-slate-400 text-sm">รอ Host กดไปรอบถัดไป...</p>`;
+            }
+            html += `</div>`;
+            app.innerHTML = html;
+        }
+
+        function nextRoundHost() {
+            gameData.round++;
+            if (gameData.round > gameData.totalRounds) {
+                broadcast({ type: 'GAME_OVER', totalStars: gameData.stars, playersCount: gameData.players.length });
+                renderGameOverScreen(gameData.stars, gameData.players.length);
+            } else {
+                gameData.answers = {};
+                broadcast({ type: 'START_GAME', round: gameData.round });
+                renderQuestionScreen(myName, gameData.round);
+            }
+        }
+
+        function renderGameOverScreen(stars, playerCount) {
+            let maxPossible = playerCount * 8;
+            let ratio = stars / maxPossible;
+            let rank = "";
+            if (ratio >= 0.8) rank = "🏆 ระดับ Soulmates รู้ใจกันขั้นสุดยอด!";
+            else if (ratio >= 0.5) rank = "🥈 ระดับเพื่อนซี้ รู้ใจกันดีพอสมควร!";
+            else rank = "🥉 ระดับเริ่มต้น ต้องไปกินหมูกระทะสานสัมพันธ์เพิ่ม!";
+
+            app.innerHTML = `
+                <div class="animate-fade-in text-center">
+                    <div class="text-4xl mb-2">🏁</div>
+                    <h1 class="text-2xl font-bold mb-1">จบเกมแล้วครับ!</h1>
+                    <p class="text-slate-400 text-sm mb-4">คะแนนดาวรวมทั้งทีมของคุณ</p>
+                    <div class="text-4xl font-bold text-amber-400 mb-6 drop-shadow-[0_0_15px_rgba(251,191,36,0.4)]">
+                        ⭐ ${stars} ดวง
+                    </div>
+                    <div class="bg-slate-900/80 border border-slate-700 p-4 rounded-2xl mb-6">
+                        <span class="text-xs text-slate-400 block mb-1">ฉายาความสัมพันธ์ของแก๊งคุณ</span>
+                        <span class="text-indigo-300 font-semibold text-base">${rank}</span>
+                    </div>
+                    <button onclick="location.reload()" class="w-full glow-btn text-white font-medium py-3.5 rounded-xl cursor-pointer">เล่นใหม่อีกครั้ง 🔄</button>
+                </div>
+            `;
+        }
+
+        function handleClientData(data) {
+            if (data.type === 'UPDATE_LOBBY') { gameData.players = data.players; updateLobbyUI(); }
+            if (data.type === 'START_GAME') { gameData.round = data.round; renderQuestionScreen(myName, gameData.round); }
+            if (data.type === 'UPDATE_PLACEMENT_TURN') { gameData.placedChain = data.placedChain; renderPlacementScreen(data.currentPlacer); }
+            if (data.type === 'SHOW_RESULTS') { renderResultScreen(data.placedChain, data.earned, data.totalStars); }
+            if (data.type === 'GAME_OVER') { renderGameOverScreen(data.totalStars, data.playersCount); }
+        }
+    </script>
+</body>
+</html>
+
