@@ -204,7 +204,9 @@
                         }
                     }
                     if (data.type === 'PLACE_CARD') {
-                        gameData.placedChain.splice(data.insertIndex, 0, { name: data.name, value: data.value, color: data.color });
+                        // ดึงค่าจาก gameData.answers ฝั่ง Host โดยตรง ป้องกันค่า null/undefined 100%
+                        const correctVal = gameData.answers[data.name] !== undefined ? gameData.answers[data.name] : data.value;
+                        gameData.placedChain.splice(data.insertIndex, 0, { name: data.name, value: correctVal, color: data.color });
                         gameData.placementQueue.shift();
                         processNextPlacer();
                     }
@@ -318,7 +320,6 @@
             if (val === "") { alert("กรุณากรอกตัวเลข"); return; }
             const numVal = parseFloat(val);
 
-            // บันทึกคำตอบไว้ที่ฝั่งตัวเองด้วย (แก้ปัญหาค่าเป็น null)
             gameData.answers[myName] = numVal;
 
             app.innerHTML = `
@@ -518,7 +519,7 @@
             }
         }
 
-        // เปิดเผยจากล่างขึ้นบนอย่างช้าๆ
+        // หน้าจอเฉลยจากล่างขึ้นบน
         function renderRevealStepScreen() {
             let chain = gameData.placedChain;
             let count = gameData.revealCount;
@@ -627,8 +628,8 @@
             if (data.type === 'UPDATE_PLACEMENT_TURN') { gameData.placedChain = data.placedChain; renderPlacementScreen(data.currentPlacer); }
             if (data.type === 'WAITING_FOR_REVEAL') { gameData.placedChain = data.placedChain; renderReadyToRevealScreen(); }
             if (data.type === 'RUN_REVEAL_STEP') { gameData.placedChain = data.placedChain; gameData.revealCount = data.revealCount; renderRevealStepScreen(); }
-            if (data.type === 'SHOW_FINAL_RESULT') { renderResultScreen(data.placedChain, data.earned, data.totalStars); }
-            if (data.type === 'GAME_OVER') { renderGameOverScreen(data.totalStars, data.playersCount); }
+            if (data.type === 'SHOW_FINAL_RESULT') { renderResultScreen(gameData.placedChain, gameData.earned, data.totalStars); }
+            if (data.type === 'GAME_OVER') { renderGameOverScreen(gameData.totalStars, data.playersCount); }
         }
     </script>
 </body>
