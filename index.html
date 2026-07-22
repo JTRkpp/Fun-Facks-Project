@@ -110,9 +110,10 @@
             round: 1,
             totalRounds: 8,
             stars: 0,
-            placedChain: [],      
+            placedChain: [],      // การ์ดที่วางล็อกแล้ว
+            tentativeChain: [],   // การ์ดที่กำลังวางพรีวิว (เฟสเปลี่ยนใจ)
+            currentPlacerName: "",
             placementQueue: [],   
-            currentPlacerId: "",
             revealCount: 1,
             earnedScore: 0
         };
@@ -203,10 +204,25 @@
                             startPlacementPhaseHost();
                         }
                     }
-                    if (data.type === 'PLACE_CARD') {
-                        // ดึงค่าจาก gameData.answers ฝั่ง Host โดยตรง ป้องกันค่า null/undefined 100%
+                    if (data.type === 'PREVIEW_PLACEMENT') {
+                        // อัปเดตตำแหน่งพรีวิวให้ทุกคนเห็นแบบเรียลไทม์
+                        const correctVal = gameData.answers[data.name] !== undefined ? gameData.answers[data.name] : data.value;
+                        let temp = [...gameData.placedChain];
+                        temp.splice(data.insertIndex, 0, { name: data.name, value: correctVal, color: data.color, isTentative: true });
+                        gameData.tentativeChain = temp;
+
+                        broadcast({
+                            type: 'UPDATE_PREVIEW',
+                            tentativeChain: gameData.tentativeChain,
+                            currentPlacerName: data.name
+                        });
+                        renderPlacementScreen({ name: data.name, color: data.color });
+                    }
+                    if (data.type === 'CONFIRM_PLACEMENT') {
+                        // ยืนยันตำแหน่ง ล็อกลงกระดานถาวร และไปคนถัดไป
                         const correctVal = gameData.answers[data.name] !== undefined ? gameData.answers[data.name] : data.value;
                         gameData.placedChain.splice(data.insertIndex, 0, { name: data.name, value: correctVal, color: data.color });
+                        gameData.tentativeChain = [...gameData.placedChain];
                         gameData.placementQueue.shift();
                         processNextPlacer();
                     }
@@ -341,6 +357,7 @@
 
         function startPlacementPhaseHost() {
             gameData.placedChain = [];
+            gameData.tentativeChain = [];
             gameData.placementQueue = [...gameData.players].sort(() => Math.random() - 0.5);
             processNextPlacer();
         }
@@ -352,32 +369,84 @@
                 return;
             }
             const currentPlacer = gameData.placementQueue[0];
-            gameData.currentPlacerId = currentPlacer.id;
+            gameData.currentPlacerName = currentPlacer.name;
+            gameData.tentativeChain = [...gameData.placedChain]; // เริ่มต้นยังไม่วางพรีวิว
 
             broadcast({
                 type: 'UPDATE_PLACEMENT_TURN',
                 currentPlacer: currentPlacer,
-                placedChain: gameData.placedChain,
+                tentativeChain: gameData.tentativeChain,
                 round: gameData.round
             });
 
             renderPlacementScreen(currentPlacer);
         }
 
+        // จัดการเมื่อผู้เล่นเลือกทดลองวางตำแหน่ง (พรีวิว)
+        function selectPlacementPreview(insertIndex) {
+            const myVal = gameData.answers[myName];
+            if (myVal === undefined) {
+                alert("ไม่พบคำตอบของคุณ กรุณาลองใหม่อีกครั้ง");
+                return;
+            }
+
+            let temp = [...gameData.placedChain];
+            temp.splice(insertIndex, 0, { name: myName, value: myVal, color: myColor, isTentative: true });
+            gameData.tentativeChain = temp;
+
+            if (isHost) {
+                broadcast({
+                    type: 'UPDATE_PREVIEW',
+                    tentativeChain: gameData.tentativeChain,
+                    currentPlacerName: myName
+                });
+                renderPlacementScreen({ name: myName, color: myColor });
+            } else {
+                conn.send({ type: 'PREVIEW_PLACEMENT', name: myName, value: myVal, color: myColor, insertIndex: insertIndex });
+            }
+        }
+
+        // ปุ่มยืนยันตำแหน่งสุดท้าย (เสร็จสิ้นการเปลี่ยนใจ)
+        function confirmFinalPlacement() {
+            // หา index ที่ตัวเองพรีวิวอยู่
+            let targetIndex = 0;
+            for (let i = 0; i < gameData.tentativeChain.length; i++) {
+                if (gameData.tentativeChain[i].name === myName) {
+                    targetIndex = i;
+                    break;
+                }
+            }
+
+            const myVal = gameData.answers[myName];
+
+            if (isHost) {
+                gameData.placedChain.splice(targetIndex, 0, { name: myName, value: myVal, color: myColor });
+                gameData.tentativeChain = [...gameData.placedChain];
+                gameData.placementQueue.shift();
+                processNextPlacer();
+            } else {
+                conn.send({ type: 'CONFIRM_PLACEMENT', name: myName, value: myVal, insertIndex: targetIndex });
+                app.innerHTML = `<div class="text-center py-8"><p class="text-slate-300">ยืนยันตำแหน่งเรียบร้อย รอเพื่อนคนถัดไป...</p></div>`;
+            }
+        }
+
         function renderPlacementScreen(placerObj) {
             const isMyTurn = (placerObj.name === myName);
             const qText = questions[gameData.round - 1];
+            const hasPreviewed = gameData.tentativeChain.some(item => item.name === placerObj.name);
 
             let html = `
                 <div class="animate-fade-in">
                     <div class="flex justify-between items-center mb-3 text-xs font-semibold tracking-wider text-indigo-400 uppercase">
                         <span>รอบที่ ${gameData.round} / 8</span>
-                        <span>เฟสวางตำแหน่ง</span>
+                        <span>เฟสวางการ์ด & โน้มน้าว 💬</span>
                     </div>
                     <div class="p-3 rounded-xl mb-4 text-white text-center font-bold shadow-md" style="background-color: ${placerObj.color} !important;">
-                        ตาของ ${placerObj.name} วางการ์ด
+                        ตาของ ${placerObj.name} กำลังเลือกวางการ์ด
                     </div>
-                    <p class="text-xs text-slate-400 text-center mb-4">${isMyTurn ? 'เลือกตำแหน่งที่คุณต้องการวางการ์ด' : 'กำลังรอเพื่อนเลือกวางตำแหน่ง...'}</p>
+                    <p class="text-xs text-slate-400 text-center mb-4">
+                        ${isMyTurn ? 'คลิกเลือกช่องเพื่อวางพรีวิว สามารถเปลี่ยนใจลองวางตำแหน่งอื่นได้ตลอด ก่อนกดปุ่มยืนยันด้านล่าง' : `กำลังเปิดโอกาสให้เพื่อนๆ โน้มน้าว ${placerObj.name} เปลี่ยนใจ...`}
+                    </p>
 
                     <div class="bg-slate-900/60 p-3 rounded-xl border border-white/5 mb-4 text-xs text-slate-300">
                         <b>คำถาม:</b> ${qText}
@@ -386,39 +455,56 @@
             `;
 
             if (isMyTurn) {
-                if (gameData.placedChain.length === 0) {
+                // ปุ่มแทรกบนสุด
+                html += `
+                    <button onclick="selectPlacementPreview(0)" class="w-full py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-dashed border-indigo-400/40 rounded-xl text-indigo-300 text-xs transition cursor-pointer">
+                        ➕ ลองวางไว้บนสุด
+                    </button>
+                `;
+
+                // แสดงรายการกระดานตาม tentativeChain หรือ placedChain
+                let displayList = gameData.tentativeChain.length > 0 ? gameData.tentativeChain : gameData.placedChain;
+                
+                // กรองการ์ดตัวเองออกเวลาแสดงปุ่มแทรกช่องว่าง เพื่อให้กดเลือกช่องสลับตำแหน่งได้ง่าย
+                let cleanListForSlot = displayList.filter(item => item.name !== myName);
+
+                cleanListForSlot.forEach((item, idx) => {
+                    let realIdx = displayList.findIndex(x => x.name === item.name);
                     html += `
-                        <button onclick="submitPlacement(0)" class="w-full py-4 bg-indigo-600/30 hover:bg-indigo-600/50 border-2 border-dashed border-indigo-400/50 rounded-xl text-indigo-200 font-medium transition cursor-pointer">
-                            📍 วางการ์ดแรกลงบนกระดาน
+                        <div class="p-3 rounded-xl text-white font-medium flex justify-between items-center shadow-md" style="background-color: ${item.color} !important;">
+                            <span>${item.name} ${item.isTentative ? '(กำลังพรีวิว 🔄)' : ''}</span>
+                            <span class="text-xs bg-black/30 px-2 py-1 rounded">${item.isTentative ? 'ชั่วคราว' : 'ล็อกแล้ว'}</span>
+                        </div>
+                        <button onclick="selectPlacementPreview(${realIdx + 1})" class="w-full py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-dashed border-indigo-400/40 rounded-xl text-indigo-300 text-xs transition cursor-pointer">
+                            ➕ ลองวางแทรกตรงนี้ / ล่างสุด
                         </button>
                     `;
-                } else {
+                });
+
+                // หากมีการ์ดตัวเองพรีวิวอยู่แล้ว โชว์การ์ดพรีวิว และปุ่มยืนยันเด่นๆ
+                if (hasPreviewed) {
                     html += `
-                        <button onclick="submitPlacement(0)" class="w-full py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-dashed border-indigo-400/40 rounded-xl text-indigo-300 text-xs transition cursor-pointer">
-                            ➕ วางไว้บนสุด
-                        </button>
-                    `;
-                    gameData.placedChain.forEach((item, idx) => {
-                        html += `
-                            <div class="p-3 rounded-xl text-white font-medium flex justify-between items-center shadow-md" style="background-color: ${item.color} !important;">
-                                <span>${item.name}</span>
-                                <span class="text-xs bg-black/30 px-2 py-1 rounded">ล็อคแล้ว</span>
-                            </div>
-                            <button onclick="submitPlacement(${idx + 1})" class="w-full py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-dashed border-indigo-400/40 rounded-xl text-indigo-300 text-xs transition cursor-pointer">
-                                ➕ แทรกระหว่างกลาง / วางข้างล่าง
+                        <div class="mt-6 p-4 bg-emerald-950/40 border border-emerald-500/40 rounded-2xl text-center">
+                            <p class="text-xs text-emerald-300 mb-2">💡 คุณกำลังวางไว้ในตำแหน่งนี้ (เพื่อนๆ เห็นแล้ว)</p>
+                            <button onclick="confirmFinalPlacement()" class="w-full glow-btn-sec text-white font-medium py-3.5 rounded-xl cursor-pointer text-base">
+                                ✅ ยืนยันตำแหน่งนี้ (เสร็จสิ้น) 🎯
                             </button>
-                        `;
-                    });
+                        </div>
+                    `;
                 }
+
             } else {
-                if (gameData.placedChain.length === 0) {
-                    html += `<p class="text-center text-slate-400 text-sm py-4">กระดานยังว่างอยู่...</p>`;
+                // มุมมองของเพื่อนคนอื่น: คอยดูพรีวิวสดๆ และช่วยกันเชียร์/โน้มน้าว
+                let displayList = gameData.tentativeChain.length > 0 ? gameData.tentativeChain : gameData.placedChain;
+                if (displayList.length === 0) {
+                    html += `<p class="text-center text-slate-400 text-sm py-4">กำลังรอกลั่นกรองตำแหน่งแรก...</p>`;
                 } else {
-                    gameData.placedChain.forEach((item) => {
+                    displayList.forEach((item) => {
+                        let isCurrentActive = (item.name === placerObj.name);
                         html += `
-                            <div class="p-3 rounded-xl text-white font-medium flex justify-between items-center shadow-md" style="background-color: ${item.color} !important;">
-                                <span>${item.name}</span>
-                                <span class="text-xs bg-black/30 px-2 py-1 rounded">ล็อคแล้ว</span>
+                            <div class="p-3 rounded-xl text-white font-medium flex justify-between items-center shadow-md ${isCurrentActive ? 'border-2 border-amber-400 animate-pulse' : ''}" style="background-color: ${item.color} !important;">
+                                <span>${item.name} ${isCurrentActive ? '👀 (กำลังพรีวิว)' : ''}</span>
+                                <span class="text-xs bg-black/30 px-2 py-1 rounded">${isCurrentActive ? 'รอยืนยัน' : 'ล็อกแล้ว'}</span>
                             </div>
                         `;
                     });
@@ -427,22 +513,6 @@
 
             html += `</div></div>`;
             app.innerHTML = html;
-        }
-
-        function submitPlacement(insertIndex) {
-            const myVal = gameData.answers[myName];
-            if (myVal === undefined) {
-                alert("ไม่พบคำตอบของคุณ กรุณาลองใหม่อีกครั้ง");
-                return;
-            }
-            if (isHost) {
-                gameData.placedChain.splice(insertIndex, 0, { name: myName, value: myVal, color: myColor });
-                gameData.placementQueue.shift();
-                processNextPlacer();
-            } else {
-                conn.send({ type: 'PLACE_CARD', name: myName, value: myVal, color: myColor, insertIndex: insertIndex });
-                app.innerHTML = `<div class="text-center py-8"><p class="text-slate-300">ส่งตำแหน่งเรียบร้อย รอเพื่อนคนถัดไป...</p></div>`;
-            }
         }
 
         function renderReadyToRevealScreen() {
@@ -625,7 +695,15 @@
         function handleClientData(data) {
             if (data.type === 'UPDATE_LOBBY') { gameData.players = data.players; updateLobbyUI(); }
             if (data.type === 'START_GAME') { gameData.round = data.round; renderQuestionScreen(myName, gameData.round); }
-            if (data.type === 'UPDATE_PLACEMENT_TURN') { gameData.placedChain = data.placedChain; renderPlacementScreen(data.currentPlacer); }
+            if (data.type === 'UPDATE_PLACEMENT_TURN') { 
+                gameData.placedChain = data.tentativeChain; 
+                gameData.tentativeChain = data.tentativeChain;
+                renderPlacementScreen(data.currentPlacer); 
+            }
+            if (data.type === 'UPDATE_PREVIEW') {
+                gameData.tentativeChain = data.tentativeChain;
+                renderPlacementScreen({ name: data.currentPlacerName });
+            }
             if (data.type === 'WAITING_FOR_REVEAL') { gameData.placedChain = data.placedChain; renderReadyToRevealScreen(); }
             if (data.type === 'RUN_REVEAL_STEP') { gameData.placedChain = data.placedChain; gameData.revealCount = data.revealCount; renderRevealStepScreen(); }
             if (data.type === 'SHOW_FINAL_RESULT') { renderResultScreen(gameData.placedChain, gameData.earned, data.totalStars); }
